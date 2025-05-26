@@ -67,6 +67,14 @@ pub struct BlockStatus {
 }
 
 #[derive(Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct Utxo {
+    pub txid: Txid,
+    pub vout: u32,
+    pub value: u64,
+    pub status: TxStatus,
+}
+
+#[derive(Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct Tx {
     pub txid: Txid,
     pub version: i32,

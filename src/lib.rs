@@ -1085,4 +1085,45 @@ mod test {
         assert_eq!(address_txs_blocking, address_txs_async);
         assert_eq!(address_txs_async[0].txid, txid);
     }
+
+    #[cfg(all(feature = "blocking", feature = "async"))]
+    #[tokio::test]
+    async fn test_get_address_utxo_and_scripthash_utxo() {
+        let (blocking_client, async_client) = setup_clients().await;
+
+        let address = BITCOIND
+            .client
+            .get_new_address(Some("test"), Some(AddressType::Legacy))
+            .unwrap()
+            .assume_checked();
+
+        let txid = BITCOIND
+            .client
+            .send_to_address(
+                &address,
+                Amount::from_sat(1000),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+            .unwrap();
+
+        let _miner = MINER.lock().await;
+        generate_blocks_and_wait(1);
+
+        let address_utxos_blocking = blocking_client.get_address_utxo(&address).unwrap();
+        let address_utxos_async = async_client.get_address_utxo(&address).await.unwrap();
+
+        let script = &address.script_pubkey();
+        let scripthash_utxos_blocking = blocking_client.scripthash_utxo(script).unwrap();
+        let scripthash_utxos_async = async_client.scripthash_utxo(script).await.unwrap();
+
+        assert_eq!(address_utxos_blocking, address_utxos_async);
+        assert_eq!(scripthash_utxos_blocking, scripthash_utxos_async);
+        assert_eq!(address_utxos_blocking, scripthash_utxos_blocking);
+        assert_eq!(address_utxos_blocking[0].txid, txid);
+    }
 }

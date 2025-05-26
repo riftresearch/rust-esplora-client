@@ -30,7 +30,7 @@ use reqwest::{header, Client, Response};
 
 use crate::api::{AddressStats, MempoolInfo};
 use crate::{
-    BlockStatus, BlockSummary, Builder, Error, MerkleProof, OutputStatus, Tx, TxStatus,
+    BlockStatus, BlockSummary, Builder, Error, MerkleProof, OutputStatus, Tx, TxStatus, Utxo,
     BASE_BACKOFF_MILLIS, RETRYABLE_ERROR_CODES,
 };
 
@@ -408,6 +408,12 @@ impl<S: Sleeper> AsyncClient<S> {
         self.get_response_json(&path).await
     }
 
+    /// Get the list of unspent outputs for the provided address.
+    pub async fn get_address_utxo(&self, address: &Address) -> Result<Vec<Utxo>, Error> {
+        let path = format!("/address/{address}/utxo");
+        self.get_response_json(&path).await
+    }
+
     /// Get confirmed transaction history for the specified address/scripthash,
     /// sorted with newest first. Returns 25 transactions per page.
     /// More can be requested by specifying the last txid seen by the previous
@@ -423,6 +429,13 @@ impl<S: Sleeper> AsyncClient<S> {
             None => format!("/scripthash/{:x}/txs", script_hash),
         };
 
+        self.get_response_json(&path).await
+    }
+
+    /// Get the list of unspent outputs for the provided script hash.
+    pub async fn scripthash_utxo(&self, script: &Script) -> Result<Vec<Utxo>, Error> {
+        let script_hash = sha256::Hash::hash(script.as_bytes());
+        let path = format!("/scripthash/{:x}/utxo", script_hash);
         self.get_response_json(&path).await
     }
 
