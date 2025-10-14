@@ -477,19 +477,25 @@ impl<S: Sleeper> AsyncClient<S> {
     }
 
     /// Sends a GET request to the given `url`, retrying failed attempts
-    /// for retryable error codes until max retries hit.
+    /// for retryable error codes and connection errors until max retries hit.
     async fn get_with_retry(&self, url: &str) -> Result<Response, Error> {
         let mut delay = BASE_BACKOFF_MILLIS;
         let mut attempts = 0;
 
         loop {
-            match self.client.get(url).send().await? {
-                resp if attempts < self.max_retries && is_status_retryable(resp.status()) => {
+            match self.client.get(url).send().await {
+                Ok(resp) if attempts < self.max_retries && is_status_retryable(resp.status()) => {
                     S::sleep(delay).await;
                     attempts += 1;
                     delay *= 2;
                 }
-                resp => return Ok(resp),
+                Ok(resp) => return Ok(resp),
+                Err(err) if attempts < self.max_retries && is_request_error_retryable(&err) => {
+                    S::sleep(delay).await;
+                    attempts += 1;
+                    delay *= 2;
+                }
+                Err(err) => return Err(Error::Reqwest(err)),
             }
         }
     }
@@ -497,6 +503,12 @@ impl<S: Sleeper> AsyncClient<S> {
 
 fn is_status_retryable(status: reqwest::StatusCode) -> bool {
     RETRYABLE_ERROR_CODES.contains(&status.as_u16())
+}
+
+/// Determines if a reqwest error represents a transient network issue that should be retried.
+fn is_request_error_retryable(err: &reqwest::Error) -> bool {
+    // Retry on connection errors, timeouts, and other transient network issues
+    err.is_connect() || err.is_timeout() || err.is_request()
 }
 
 pub trait Sleeper: 'static {
