@@ -14,6 +14,7 @@
 use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::str::FromStr;
+use std::time::Duration;
 
 use bitcoin::consensus::{deserialize, serialize, Decodable, Encodable};
 use bitcoin::hashes::{sha256, Hash};
@@ -54,13 +55,20 @@ impl<S: Sleeper> AsyncClient<S> {
 
         #[cfg(not(target_arch = "wasm32"))]
         if let Some(proxy) = &builder.proxy {
-            client_builder = client_builder.proxy(reqwest::Proxy::all(proxy)?);
+            client_builder = client_builder.proxy(reqwest::Proxy::all(proxy).map_err(|e| Error::ReqwestWithContext {
+                error: e,
+                context: "Failed to create proxy".to_string(),
+            })?);
         }
 
         #[cfg(not(target_arch = "wasm32"))]
         if let Some(timeout) = builder.timeout {
             client_builder = client_builder.timeout(core::time::Duration::from_secs(timeout));
         }
+
+        client_builder = client_builder
+            .pool_idle_timeout(Duration::from_secs(30))
+            .tcp_keepalive(Some(Duration::from_secs(300)));
 
         if !builder.headers.is_empty() {
             let mut headers = header::HeaderMap::new();
@@ -76,7 +84,10 @@ impl<S: Sleeper> AsyncClient<S> {
 
         Ok(AsyncClient {
             url: builder.base_url,
-            client: client_builder.build()?,
+            client: client_builder.build().map_err(|e| Error::ReqwestWithContext {
+                error: e,
+                context: "Failed to build client".to_string(),
+            })?,
             max_retries: builder.max_retries,
             marker: PhantomData,
         })
@@ -109,11 +120,17 @@ impl<S: Sleeper> AsyncClient<S> {
         if !response.status().is_success() {
             return Err(Error::HttpResponse {
                 status: response.status().as_u16(),
-                message: response.text().await?,
+                message: response.text().await.map_err(|e| Error::ReqwestWithContext {
+                    error: e,
+                    context: "Failed to get response text".to_string(),
+                })?,
             });
         }
 
-        Ok(deserialize::<T>(&response.bytes().await?)?)
+        Ok(deserialize::<T>(&response.bytes().await.map_err(|e| Error::ReqwestWithContext {
+            error: e,
+            context: "Failed to get response bytes".to_string(),
+        })?)?)
     }
 
     /// Make an HTTP GET request to given URL, deserializing to `Option<T>`.
@@ -149,11 +166,17 @@ impl<S: Sleeper> AsyncClient<S> {
         if !response.status().is_success() {
             return Err(Error::HttpResponse {
                 status: response.status().as_u16(),
-                message: response.text().await?,
+                message: response.text().await.map_err(|e| Error::ReqwestWithContext {
+                    error: e,
+                    context: "Failed to get response text".to_string(),
+                })?,
             });
         }
 
-        response.json::<T>().await.map_err(Error::Reqwest)
+        response.json::<T>().await.map_err(|e| Error::ReqwestWithContext {
+            error: e,
+            context: "Failed to get response json".to_string(),
+        })
     }
 
     /// Make an HTTP GET request to given URL, deserializing to `Option<T>`.
@@ -191,11 +214,17 @@ impl<S: Sleeper> AsyncClient<S> {
         if !response.status().is_success() {
             return Err(Error::HttpResponse {
                 status: response.status().as_u16(),
-                message: response.text().await?,
+                message: response.text().await.map_err(|e| Error::ReqwestWithContext {
+                    error: e,
+                    context: "get_response_hex: Failed to get response text".to_string(),
+                })?,
             });
         }
 
-        let hex_str = response.text().await?;
+        let hex_str = response.text().await.map_err(|e| Error::ReqwestWithContext {
+            error: e,
+            context: "get_response_hex: Failed to get response text".to_string(),
+        })?;
         Ok(deserialize(&Vec::from_hex(&hex_str)?)?)
     }
 
@@ -228,11 +257,17 @@ impl<S: Sleeper> AsyncClient<S> {
         if !response.status().is_success() {
             return Err(Error::HttpResponse {
                 status: response.status().as_u16(),
-                message: response.text().await?,
+                message: response.text().await.map_err(|e| Error::ReqwestWithContext {
+                    error: e,
+                    context: "get_response_text: Failed to get response text".to_string(),
+                })?,
             });
         }
 
-        Ok(response.text().await?)
+        Ok(response.text().await.map_err(|e| Error::ReqwestWithContext {
+            error: e,
+            context: "get_response_text: Failed to get response text".to_string(),
+        })?)
     }
 
     /// Make an HTTP GET request to given URL, deserializing to `Option<T>`.
@@ -263,12 +298,18 @@ impl<S: Sleeper> AsyncClient<S> {
         let url = format!("{}{}", self.url, path);
         let body = serialize::<T>(&body).to_lower_hex_string();
 
-        let response = self.client.post(url).body(body).send().await?;
+        let response = self.client.post(url).body(body).send().await.map_err(|e| Error::ReqwestWithContext {
+            error: e,
+            context: "post_request_hex: Failed to send request".to_string(),
+        })?;
 
         if !response.status().is_success() {
             return Err(Error::HttpResponse {
                 status: response.status().as_u16(),
-                message: response.text().await?,
+                message: response.text().await.map_err(|e| Error::ReqwestWithContext {
+                    error: e,
+                    context: "post_request_hex: Failed to get response text".to_string(),
+                })?,
             });
         }
 
@@ -495,7 +536,10 @@ impl<S: Sleeper> AsyncClient<S> {
                     attempts += 1;
                     delay *= 2;
                 }
-                Err(err) => return Err(Error::Reqwest(err)),
+                Err(err) => return Err(Error::ReqwestWithContext {
+                    error: err,
+                    context: format!("Failed to send request after {attempts} attempts and {delay:?} delay"),
+                }),
             }
         }
     }

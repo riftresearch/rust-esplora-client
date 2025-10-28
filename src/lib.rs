@@ -97,7 +97,7 @@ const RETRYABLE_ERROR_CODES: [u16; 3] = [
 const BASE_BACKOFF_MILLIS: Duration = Duration::from_millis(256);
 
 /// Default max retries.
-const DEFAULT_MAX_RETRIES: usize = 6;
+const DEFAULT_MAX_RETRIES: usize = 7;
 
 /// Get a fee value in sats/vbytes from the estimates
 /// that matches the confirmation target set as parameter.
@@ -202,7 +202,7 @@ pub enum Error {
     Minreq(::minreq::Error),
     /// Error during reqwest HTTP request
     #[cfg(feature = "async")]
-    Reqwest(::reqwest::Error),
+    ReqwestWithContext { error: ::reqwest::Error, context: String },
     /// HTTP response error
     HttpResponse { status: u16, message: String },
     /// Invalid number returned
@@ -252,7 +252,6 @@ impl std::error::Error for Error {}
 #[cfg(feature = "blocking")]
 impl_error!(::minreq::Error, Minreq, Error);
 #[cfg(feature = "async")]
-impl_error!(::reqwest::Error, Reqwest, Error);
 impl_error!(std::num::ParseIntError, Parsing, Error);
 impl_error!(bitcoin::consensus::encode::Error, BitcoinEncoding, Error);
 impl_error!(bitcoin::hex::HexToArrayError, HexToArray, Error);
